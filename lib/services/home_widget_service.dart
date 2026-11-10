@@ -11,8 +11,17 @@ import 'settings.dart';
 class HomeWidgetService {
   static const _provider = 'com.fersonal.expense_tracker.ExpenseWidgetProvider';
 
+  /// Never throws and never blocks the caller for more than a few seconds.
   static Future<void> update(Repository repo, Settings s, List<Tag> tags) async {
     try {
+      await _update(repo, s, tags).timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('Widget update skipped: $e');
+    }
+  }
+
+  static Future<void> _update(Repository repo, Settings s, List<Tag> tags) async {
+    {
       final period = s.resolveWidgetPeriod(DateTime.now());
       final tagId = s.widgetTagId;
       final filter = TxnFilter(
@@ -43,8 +52,6 @@ class HomeWidgetService {
         HomeWidget.saveWidgetData<bool>('w_show_net', s.widgetShowNet),
       ]);
       await HomeWidget.updateWidget(qualifiedAndroidName: _provider);
-    } catch (e) {
-      debugPrint('Widget update skipped: $e');
     }
   }
 

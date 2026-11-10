@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resources referenced only by name from Dart (e.g. the notification icon
+     passed to flutter_local_notifications) are invisible to the release
+     resource shrinker. Without this file the icon is deleted from release
+     builds and notification setup fails at startup. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_rupee" />
