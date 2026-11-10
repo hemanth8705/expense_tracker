@@ -110,7 +110,7 @@ class TxnTile extends StatelessWidget {
     final sub = <String>[
       if (showDate) shortDayFmt.format(txn.occurredAt),
       timeFmt.format(txn.occurredAt),
-      txn.accountLabel ?? (txn.isSms ? 'SMS' : 'Manual'),
+      txn.accountLabel ?? txn.source.label,
     ].join(' · ');
 
     return ListTile(
@@ -126,7 +126,11 @@ class TxnTile extends StatelessWidget {
               radius: 18,
               backgroundColor: cs.surfaceContainer,
               child: Icon(
-                txn.isSms ? Icons.sms_outlined : Icons.edit_outlined,
+                switch (txn.source) {
+                  TxnSource.sms => Icons.sms_outlined,
+                  TxnSource.manual => Icons.edit_outlined,
+                  TxnSource.imported => Icons.file_download_outlined,
+                },
                 size: 18,
                 color: cs.onSurface,
               ),

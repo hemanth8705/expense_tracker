@@ -42,7 +42,7 @@ class ExportService {
           tm.format(t.occurredAt),
           t.type == TxnType.debit ? 'Debit' : 'Credit',
           t.amount / 100,
-          t.isSms ? 'SMS' : 'Manual',
+          t.source.label,
           t.bank ?? '',
           t.account == null ? '' : 'xx${t.account}',
           t.counterparty ?? '',
@@ -100,6 +100,14 @@ class ExportService {
         DoubleCellValue(e.value.$1 / 100),
         DoubleCellValue(e.value.$2 / 100),
       ]);
+    }
+
+    // Tag colours, so importing this file on a new install restores them.
+    final tagSheet = excel['Tags'];
+    tagSheet.appendRow([TextCellValue('Tag'), TextCellValue('Color')]);
+    for (final t in tags) {
+      final hex = (t.color & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase();
+      tagSheet.appendRow([TextCellValue(t.name), TextCellValue('#$hex')]);
     }
 
     final bytes = Uint8List.fromList(excel.encode()!);

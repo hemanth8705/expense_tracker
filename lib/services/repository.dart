@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import '../core/dedupe.dart';
 import '../models/models.dart';
 
 /// All on-device storage. No server: data lives in a local SQLite file.
@@ -19,7 +20,7 @@ class Repository {
     final dbPath = path ?? p.join(await getDatabasesPath(), 'expense_tracker.db');
     final db = await openDatabase(
       dbPath,
-      version: 1,
+      version: 2,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, _) async {
         await db.execute('''
@@ -28,10 +29,55 @@ class Repository {
             name TEXT NOT NULL UNIQUE COLLATE NOCASE,
             color INTEGER NOT NULL
           )''');
-        await db.execute('''
-          CREATE TABLE txns(
+        await _createTxnsTable(db, 'txns');
+        await _createIndexes(db);
+      },
+      onUpgrade: (db, oldVersion, _) async {
+        if (oldVersion < 2) await _migrateToV2(db);
+      },
+    );
+    return Repository(db);
+  }
+
+  static Future<void> _createIndexes(DatabaseExecutor db) async {
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_txns_time ON txns(archived, occurred_at)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_txns_tag ON txns(tag_id)');
+  }
+
+  /// v2: adds the 'imported' source (SQLite cannot alter a CHECK, so the
+  /// table is rebuilt) and recomputes SMS keys with minute precision so
+  /// SMS restored from an export match the same SMS read from the inbox.
+  static Future<void> _migrateToV2(Database db) async {
+    // Must be outside a transaction to take effect.
+    await db.execute('PRAGMA foreign_keys = OFF');
+    await db.transaction((tx) async {
+      await _createTxnsTable(tx, 'txns_v2');
+      await tx.execute('INSERT INTO txns_v2 SELECT * FROM txns');
+      await tx.execute('DROP TABLE txns');
+      await tx.execute('ALTER TABLE txns_v2 RENAME TO txns');
+      await _createIndexes(tx);
+
+      final rows = await tx.query('txns',
+          columns: ['id', 'sms_sender', 'occurred_at', 'sms_body'],
+          where: 'sms_body IS NOT NULL AND sms_sender IS NOT NULL',
+          orderBy: 'id');
+      final used = <String>{};
+      for (final r in rows) {
+        final key = smsDedupeKey(r['sms_sender'] as String,
+            DateTime.fromMillisecondsSinceEpoch(r['occurred_at'] as int), r['sms_body'] as String);
+        // Two stored rows collapsing to one key would be exact duplicates;
+        // keep the older key on the later one rather than fail the upgrade.
+        if (!used.add(key)) continue;
+        await tx.update('txns', {'sms_key': key}, where: 'id = ?', whereArgs: [r['id']]);
+      }
+    });
+    await db.execute('PRAGMA foreign_keys = ON');
+  }
+
+  static Future<void> _createTxnsTable(DatabaseExecutor db, String name) => db.execute('''
+          CREATE TABLE $name(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source TEXT NOT NULL CHECK(source IN ('sms','manual')),
+            source TEXT NOT NULL CHECK(source IN ('sms','manual','imported')),
             type TEXT NOT NULL CHECK(type IN ('debit','credit')),
             amount INTEGER NOT NULL CHECK(amount > 0),
             occurred_at INTEGER NOT NULL,
@@ -49,12 +95,6 @@ class Repository {
             sms_body TEXT,
             created_at INTEGER NOT NULL
           )''');
-        await db.execute('CREATE INDEX idx_txns_time ON txns(archived, occurred_at)');
-        await db.execute('CREATE INDEX idx_txns_tag ON txns(tag_id)');
-      },
-    );
-    return Repository(db);
-  }
 
   // ---------------------------------------------------------------- filters
 
@@ -202,6 +242,34 @@ class Repository {
   }
 
   Future<int> insertManual(Txn t) => db.insert('txns', t.toRow());
+
+  /// Inserts imported rows in one transaction, skipping any whose key
+  /// already exists. Returns the number inserted.
+  Future<int> insertImported(List<Txn> txns) async {
+    var inserted = 0;
+    await db.transaction((tx) async {
+      for (final t in txns) {
+        final exists = Sqflite.firstIntValue(await tx.rawQuery(
+                'SELECT COUNT(*) FROM txns WHERE sms_key = ?', [t.smsKey])) ??
+            0;
+        if (exists > 0) continue;
+        await tx.insert('txns', t.toRow());
+        inserted++;
+      }
+    });
+    return inserted;
+  }
+
+  /// True if a manual entry with the same direction and amount exists in the
+  /// same minute. Stops re-importing entries typed into this install.
+  Future<bool> hasMatchingManual(TxnType type, int amount, DateTime at) async {
+    final start = DateTime(at.year, at.month, at.day, at.hour, at.minute);
+    final n = Sqflite.firstIntValue(await db.rawQuery(
+        "SELECT COUNT(*) FROM txns WHERE source = 'manual' AND type = ? AND amount = ? "
+        'AND occurred_at >= ? AND occurred_at < ?',
+        [type.name, amount, start.millisecondsSinceEpoch, start.add(const Duration(minutes: 1)).millisecondsSinceEpoch]));
+    return (n ?? 0) > 0;
+  }
 
   Future<void> updateManual(Txn t) => db.update(
         'txns',

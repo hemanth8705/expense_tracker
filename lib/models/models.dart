@@ -2,7 +2,17 @@ import 'package:flutter/material.dart';
 
 enum TxnType { debit, credit }
 
-enum TxnSource { sms, manual }
+/// sms: read from the inbox. manual: typed in the app.
+/// imported: restored from an exported Excel/CSV file.
+enum TxnSource { sms, manual, imported }
+
+extension TxnSourceLabel on TxnSource {
+  String get label => switch (this) {
+        TxnSource.sms => 'SMS',
+        TxnSource.manual => 'Manual',
+        TxnSource.imported => 'Imported',
+      };
+}
 
 enum AccountKind { bank, card, wallet }
 
@@ -53,6 +63,13 @@ class Txn {
   });
 
   bool get isSms => source == TxnSource.sms;
+
+  /// Only manual entries can be edited or deleted. SMS and imported rows
+  /// can only be archived, so their de-duplication key is never lost.
+  bool get isManual => source == TxnSource.manual;
+
+  /// True when the original SMS text is kept (SMS rows and imported SMS rows).
+  bool get hasSmsText => smsBody != null && smsBody!.isNotEmpty;
 
   /// Signed amount: credits positive, debits negative.
   int get signed => type == TxnType.credit ? amount : -amount;

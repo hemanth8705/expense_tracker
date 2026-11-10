@@ -97,16 +97,16 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: Text(t.archived ? 'Archived' : (t.isSms ? 'SMS transaction' : 'Manual transaction')),
+            title: Text(t.archived ? 'Archived' : '${t.source.label} transaction'),
             actions: [
-              if (!t.isSms && !t.archived)
+              if (t.isManual && !t.archived)
                 IconButton(
                   tooltip: 'Edit',
                   icon: const Icon(Icons.edit_outlined),
                   onPressed: () => Navigator.push(
                       context, MaterialPageRoute(builder: (_) => ManualTxnScreen(existing: t))),
                 ),
-              if (!t.isSms)
+              if (t.isManual)
                 IconButton(tooltip: 'Delete', icon: const Icon(Icons.delete_outline), onPressed: () => _delete(t)),
             ],
           ),
@@ -124,7 +124,11 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                   info('Bank', t.bank),
                   info(t.accountKind == AccountKind.card ? 'Card' : 'Account', t.account == null ? null : '••${t.account}'),
                   info('Balance after', t.balance == null ? null : money(t.balance!)),
-                  info('Source', t.isSms ? 'SMS from ${t.smsSender}' : 'Added manually'),
+                  info('Source', switch (t.source) {
+                    TxnSource.sms => 'SMS from ${t.smsSender}',
+                    TxnSource.manual => 'Added manually',
+                    TxnSource.imported => 'Imported from file${t.hasSmsText ? ' (SMS from ${t.smsSender})' : ''}',
+                  }),
                   if (t.archived && t.archivedAt != null) info('Archived on', dateTimeFmt.format(t.archivedAt!)),
                 ]),
               ),
@@ -163,7 +167,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
               decoration: const InputDecoration(hintText: 'Add a note'),
               onChanged: _onNoteChanged,
             ),
-            if (t.smsBody != null) ...[
+            if (t.hasSmsText) ...[
               SectionTitle(
                 'Original SMS',
                 trailing: IconButton(
@@ -198,7 +202,7 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
                 padding: const EdgeInsets.only(top: 8),
                 child: Text(
                   'Archiving hides this from every list, total, report, the widget and exports. '
-                  '${t.isSms ? 'This SMS will not be imported again. ' : ''}You can restore it from Settings › Archived.',
+                  '${t.hasSmsText ? 'This SMS will not be imported again. ' : ''}You can restore it from Settings › Archived.',
                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
                 ),
               ),

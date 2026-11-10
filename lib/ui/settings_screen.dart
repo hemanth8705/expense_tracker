@@ -9,6 +9,7 @@ import '../state/app_state.dart';
 import 'archive_screen.dart';
 import 'common.dart';
 import 'export_sheet.dart';
+import 'import_flow.dart';
 import 'tags_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -185,10 +186,17 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('Export CSV / Excel'),
           onTap: () => showExportSheet(context, Period.thisMonth(DateTime.now())),
         ),
+        ListTile(
+          leading: const Icon(Icons.upload_file_outlined),
+          title: const Text('Import from Excel / CSV'),
+          subtitle: const Text('Restore a file exported from this app. Tags and notes come back; duplicates are skipped.'),
+          onTap: () => runImport(context),
+        ),
         Padding(
           padding: const EdgeInsets.all(16),
           child: Text(
-            'All data is stored only on this phone. Uninstalling the app deletes it, so export regularly if you want a backup.',
+            'All data is stored only on this phone. Uninstalling the app deletes it, so export to Excel regularly; '
+            'you can import that file back on a new install.',
             style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
           ),
         ),

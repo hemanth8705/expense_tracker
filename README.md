@@ -21,7 +21,11 @@ There is no server and no account. Everything is stored in a local SQLite file o
 - **Notes** on any transaction.
 - **Totals:** debited, credited and net for any period (week, month, custom), plus the latest
   bank-reported balance per account.
-- **Export** to Excel (.xlsx with a summary sheet) or CSV, saved to the device or shared.
+- **Export** to Excel (.xlsx with Transactions, Summary and Tags sheets) or CSV, saved to the device or shared.
+- **Import** (*Settings › Import from Excel / CSV*) restores an export, e.g. after reinstalling. Only the
+  Transactions sheet is read; tag colours come from the Tags sheet when present. Rows get the source
+  **Imported**. Duplicates are skipped: importing the same file twice adds nothing, and a later SMS refresh
+  won't re-add an SMS that was restored from the file (both use `sha1(sender | time to the minute | text)`).
 - **Home screen widget** shows debited / credited / net. In Settings you choose the period (this
   month, last month, this week, a specific month), which tag to count, and which figures to show.
 
@@ -30,7 +34,7 @@ There is no server and no account. Everything is stored in a local SQLite file o
 | Action | Effect |
 |---|---|
 | **Archive** (single, multi-select, or by date range) | Hidden from lists, totals, reports, balances, widget and exports. The row is kept, so the SMS is never re-imported. Restore from *Settings › Archived*. |
-| **Delete** | Only manual entries can be deleted (permanently). SMS entries can only be archived. |
+| **Delete** | Only manual entries can be deleted (permanently). SMS and imported entries can only be archived, so their duplicate-check key is never lost. |
 | **Delete a tag** | Its transactions, archived ones included, become "No tag". Nothing else is removed. If the widget was filtered to that tag, it falls back to "All". |
 | **Any data change** | `AppState._changed()` bumps a revision (all open screens reload) and recomputes the widget. |
 

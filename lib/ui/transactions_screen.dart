@@ -320,13 +320,9 @@ class _FilterBar extends StatelessWidget {
                 : filter.copyWith(untaggedOnly: false, tagId: v)),
           ),
           menuChip<TxnSource?>(
-            label: switch (filter.source) {
-              null => 'Source',
-              TxnSource.sms => 'SMS',
-              TxnSource.manual => 'Manual',
-            },
+            label: filter.source?.label ?? 'Source',
             active: filter.source != null,
-            options: const [('All', null), ('SMS', TxnSource.sms), ('Manual', TxnSource.manual)],
+            options: [('All', null), for (final s in TxnSource.values) (s.label, s)],
             onSelect: (v) => onFilter(filter.copyWith(source: v)),
           ),
           FutureBuilder<List<String>>(

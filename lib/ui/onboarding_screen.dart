@@ -39,6 +39,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Image.asset('assets/logo.png', width: 72, height: 72),
+            const SizedBox(height: 20),
             const Text('Expense\nTracker', style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, height: 1)),
             const SizedBox(height: 32),
             point(Icons.sms_outlined, 'Reads bank SMS only when you refresh',

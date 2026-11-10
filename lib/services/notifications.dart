@@ -25,7 +25,8 @@ class Notifications {
 
     await _plugin.initialize(
       settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        // White ₹ silhouette; Android renders the status-bar icon from its alpha.
+        android: AndroidInitializationSettings('ic_stat_rupee'),
       ),
       onDidReceiveNotificationResponse: (_) => refreshRequests.value++,
     );

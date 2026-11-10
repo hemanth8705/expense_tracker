@@ -1,12 +1,11 @@
-import 'package:crypto/crypto.dart';
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../core/dedupe.dart';
 import '../core/period.dart';
 import '../models/models.dart';
+import '../services/import_service.dart';
 import '../services/home_widget_service.dart';
 import '../services/notifications.dart';
 import '../services/repository.dart';
@@ -23,6 +22,14 @@ class RefreshResult {
   final int added;
   final String? error;
   const RefreshResult(this.status, {this.scanned = 0, this.financial = 0, this.added = 0, this.error});
+}
+
+class ImportOutcome {
+  final int added;
+  final int duplicates;
+  final int tagsCreated;
+  final List<String> errors;
+  const ImportOutcome({required this.added, required this.duplicates, required this.tagsCreated, required this.errors});
 }
 
 /// Single place that performs every mutation and its side effects.
@@ -93,8 +100,6 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------- SMS import
 
-  static String smsKey(String sender, DateTime date, String body) =>
-      sha1.convert(utf8.encode('$sender|${date.millisecondsSinceEpoch}|$body')).toString();
 
   /// Reads the inbox and imports new debit/credit SMS.
   /// [since] overrides the automatic window (used by "Import older SMS").
@@ -125,7 +130,7 @@ class AppState extends ChangeNotifier {
         final parsed = SmsParser.parse(sender: sms.address, body: sms.body);
         if (parsed == null) continue;
         financial++;
-        final key = smsKey(sms.address, sms.date, sms.body);
+        final key = smsDedupeKey(sms.address, sms.date, sms.body);
         candidates[key] = Txn(
           source: TxnSource.sms,
           type: parsed.type,
@@ -171,6 +176,98 @@ class AppState extends ChangeNotifier {
       return RefreshResult(RefreshStatus.error, error: e.toString());
     }
   }
+
+  // ----------------------------------------------------------------- import
+
+  /// Imports rows from an exported file as source = imported.
+  ///
+  /// Duplicates are skipped, so importing the same file twice, or importing
+  /// and then refreshing SMS, never double-counts:
+  ///  * rows with SMS text use the same key as an SMS read from the inbox,
+  ///  * rows without SMS text use an entry key, and are also skipped when a
+  ///    manual entry with the same type, amount and minute already exists.
+  /// Missing tags are created (colour from the file's Tags sheet if present).
+  /// With [dryRun] nothing is written; the counts are what would happen.
+  Future<ImportOutcome> importRows(ImportFileResult file, {bool dryRun = false}) async {
+    final now = DateTime.now();
+    final existingTags = {for (final t in tags) t.name.toLowerCase(): t};
+    final newTagNames = <String, String>{}; // lower -> display
+    for (final r in file.rows) {
+      final name = r.tag?.trim();
+      if (name == null || name.isEmpty) continue;
+      if (!existingTags.containsKey(name.toLowerCase())) newTagNames[name.toLowerCase()] ??= name;
+    }
+
+    final keyed = <String, ImportRow>{};
+    var duplicates = 0;
+    for (final r in file.rows) {
+      final key = r.hasSms
+          ? smsDedupeKey(r.smsSender!, r.at, r.smsBody!)
+          : entryDedupeKey(r.type, r.amount, r.at, r.counterparty, r.note);
+      if (keyed.containsKey(key)) {
+        duplicates++; // repeated inside the file itself
+      } else {
+        keyed[key] = r;
+      }
+    }
+    final stored = await repo.existingSmsKeys(keyed.keys);
+    final fresh = <String, ImportRow>{};
+    for (final e in keyed.entries) {
+      if (stored.contains(e.key) ||
+          (!e.value.hasSms && await repo.hasMatchingManual(e.value.type, e.value.amount, e.value.at))) {
+        duplicates++;
+      } else {
+        fresh[e.key] = e.value;
+      }
+    }
+
+    if (dryRun || fresh.isEmpty) {
+      return ImportOutcome(
+          added: fresh.length, duplicates: duplicates, tagsCreated: newTagNames.length, errors: file.errors);
+    }
+
+    // Create tags first so rows can reference them.
+    var palette = tags.length;
+    for (final name in newTagNames.values) {
+      final color = file.tagColors[name.toLowerCase()] ?? _palette[palette++ % _palette.length];
+      await repo.insertTag(Tag(name: name, color: color));
+    }
+    final tagIds = {for (final t in await repo.tags()) t.name.toLowerCase(): t.id};
+
+    final txns = [
+      for (final e in fresh.entries)
+        Txn(
+          source: TxnSource.imported,
+          type: e.value.type,
+          amount: e.value.amount,
+          occurredAt: e.value.at,
+          bank: e.value.bank,
+          account: e.value.account,
+          accountKind: e.value.accountKind,
+          counterparty: e.value.counterparty,
+          balance: e.value.balance,
+          tagId: e.value.tag == null ? null : tagIds[e.value.tag!.trim().toLowerCase()],
+          note: e.value.note,
+          smsKey: e.key,
+          smsSender: e.value.hasSms ? e.value.smsSender : null,
+          smsBody: e.value.hasSms ? e.value.smsBody : null,
+          createdAt: now,
+        ),
+    ];
+    final added = await repo.insertImported(txns);
+    await _changed();
+    return ImportOutcome(
+      added: added,
+      duplicates: duplicates + (txns.length - added),
+      tagsCreated: newTagNames.length,
+      errors: file.errors,
+    );
+  }
+
+  static const _palette = <int>[
+    0xFFE53935, 0xFF1E88E5, 0xFF43A047, 0xFFFB8C00, 0xFF8E24AA, 0xFF00ACC1,
+    0xFFFDD835, 0xFF6D4C41, 0xFFD81B60, 0xFF3949AB, 0xFF7CB342, 0xFF757575,
+  ];
 
   // ----------------------------------------------------------- transactions
 
